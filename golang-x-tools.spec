@@ -8,7 +8,7 @@
 # https://github.com/golang/tools
 %global goipath		golang.org/x/tools
 %global forgeurl	https://github.com/golang/tools
-Version:		0.11.1
+Version:		0.17.0
 
 %gometa
 
@@ -25,6 +25,8 @@ Source0:	https://github.com/golang/tools/archive/v%{version}/tools-%{version}.ta
 Source3:	vendor.tar.zst
 Source100:	golang-package-dependencies.sh
 %endif
+# (debian)
+Patch0:		0013-Disable-telemetry-in-gopls.patch
 URL:		https://github.com/golang/tools
 License:	BSD
 Group:		Development/Other
@@ -504,10 +506,7 @@ for cmd in $(ls -1 _bin) ; do
 	install -Dpm 0755 _bin/$cmd %{buildroot}%{_bindir}/$cmd
 done
 
-#install -Dpm 0755 d  %{buildroot}%{_bindir}
-#install -Dpm 0755 _bin/* %{buildroot}%{_bindir}/
-
-# Fix conflict with rubygem-bundler
+# fix conflict with rubygem-bundler
 mv %{buildroot}%{_bindir}/bundle %{buildroot}%{_bindir}/gobundle
 
 %check

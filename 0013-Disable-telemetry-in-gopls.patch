@@ -1,0 +1,225 @@
+From: Shengjing Zhu <zhsj@debian.org>
+Date: Mon, 25 Dec 2023 02:26:50 -0700
+Subject: Disable telemetry in gopls
+
+Co-authored-by: Anthony Fok <foka@debian.org>
+---
+ gopls/internal/telemetry/cmd/stacks/stacks.go |  2 ++
+ gopls/internal/telemetry/latency.go           | 42 ---------------------------
+ gopls/internal/telemetry/telemetry.go         | 14 +++------
+ gopls/internal/telemetry/telemetry_test.go    |  4 +--
+ gopls/internal/util/bug/bug.go                |  6 ----
+ gopls/main.go                                 |  2 --
+ 6 files changed, 8 insertions(+), 62 deletions(-)
+
+diff --git a/gopls/internal/telemetry/cmd/stacks/stacks.go b/gopls/internal/telemetry/cmd/stacks/stacks.go
+index 9234afe..697974a 100644
+--- a/gopls/internal/telemetry/cmd/stacks/stacks.go
++++ b/gopls/internal/telemetry/cmd/stacks/stacks.go
+@@ -5,6 +5,8 @@
+ // The stacks command finds all gopls stack traces reported by
+ // telemetry in the past 7 days, and reports their associated GitHub
+ // issue, creating new issues as needed.
++
++//go:build ignore
+ package main
+ 
+ import (
+diff --git a/gopls/internal/telemetry/latency.go b/gopls/internal/telemetry/latency.go
+index b0e2da7..e6a6f5a 100644
+--- a/gopls/internal/telemetry/latency.go
++++ b/gopls/internal/telemetry/latency.go
+@@ -7,12 +7,9 @@ package telemetry
+ import (
+ 	"context"
+ 	"errors"
+-	"fmt"
+ 	"sort"
+ 	"sync"
+ 	"time"
+-
+-	"golang.org/x/telemetry/counter"
+ )
+ 
+ // latencyKey is used for looking up latency counters.
+@@ -37,45 +34,8 @@ var (
+ 	}
+ 
+ 	latencyCounterMu sync.Mutex
+-	latencyCounters  = make(map[latencyKey]*counter.Counter) // lazily populated
+ )
+ 
+-// ForEachLatencyCounter runs the provided function for each current latency
+-// counter measuring the given operation.
+-//
+-// Exported for testing.
+-func ForEachLatencyCounter(operation string, isError bool, f func(*counter.Counter)) {
+-	latencyCounterMu.Lock()
+-	defer latencyCounterMu.Unlock()
+-
+-	for k, v := range latencyCounters {
+-		if k.operation == operation && k.isError == isError {
+-			f(v)
+-		}
+-	}
+-}
+-
+-// getLatencyCounter returns the counter used to record latency of the given
+-// operation in the given bucket.
+-func getLatencyCounter(operation, bucket string, isError bool) *counter.Counter {
+-	latencyCounterMu.Lock()
+-	defer latencyCounterMu.Unlock()
+-
+-	key := latencyKey{operation, bucket, isError}
+-	c, ok := latencyCounters[key]
+-	if !ok {
+-		var name string
+-		if isError {
+-			name = fmt.Sprintf("gopls/%s/error-latency:%s", operation, bucket)
+-		} else {
+-			name = fmt.Sprintf("gopls/%s/latency:%s", operation, bucket)
+-		}
+-		c = counter.New(name)
+-		latencyCounters[key] = c
+-	}
+-	return c
+-}
+-
+ // StartLatencyTimer starts a timer for the gopls operation with the given
+ // name, and returns a func to stop the timer and record the latency sample.
+ //
+@@ -95,8 +55,6 @@ func StartLatencyTimer(operation string) func(context.Context, error) {
+ 			return latency < bucket.end
+ 		})
+ 		if bucketIdx < len(latencyBuckets) { // ignore latency longer than a day :)
+-			bucketName := latencyBuckets[bucketIdx].name
+-			getLatencyCounter(operation, bucketName, err != nil).Inc()
+ 		}
+ 	}
+ }
+diff --git a/gopls/internal/telemetry/telemetry.go b/gopls/internal/telemetry/telemetry.go
+index 2ce284c..e96a57a 100644
+--- a/gopls/internal/telemetry/telemetry.go
++++ b/gopls/internal/telemetry/telemetry.go
+@@ -10,25 +10,21 @@ package telemetry
+ import (
+ 	"fmt"
+ 
+-	"golang.org/x/telemetry"
+-	"golang.org/x/telemetry/counter"
+-	"golang.org/x/telemetry/upload"
+ 	"golang.org/x/tools/gopls/internal/lsp/protocol"
+ )
+ 
+ // Mode calls x/telemetry.Mode.
+ func Mode() string {
+-	return telemetry.Mode()
++	return "off"
+ }
+ 
+ // SetMode calls x/telemetry.SetMode.
+ func SetMode(mode string) error {
+-	return telemetry.SetMode(mode)
++	return nil
+ }
+ 
+ // Upload starts a goroutine for telemetry upload.
+ func Upload() {
+-	go upload.Run(nil)
+ }
+ 
+ // RecordClientInfo records gopls client info.
+@@ -62,11 +58,10 @@ func RecordClientInfo(params *protocol.ParamInitialize) {
+ 			client = "gopls/client:sublimetext"
+ 		default:
+ 			// at least accumulate the client name locally
+-			counter.New(fmt.Sprintf("gopls/client-other:%s", params.ClientInfo.Name)).Inc()
+ 			// but also record client:other
+ 		}
+ 	}
+-	counter.Inc(client)
++	_ = client
+ }
+ 
+ // RecordViewGoVersion records the Go minor version number (1.x) used for a view.
+@@ -75,7 +70,7 @@ func RecordViewGoVersion(x int) {
+ 		return
+ 	}
+ 	name := fmt.Sprintf("gopls/goversion:1.%d", x)
+-	counter.Inc(name)
++	_ = name
+ }
+ 
+ // AddForwardedCounters adds the given counters on behalf of clients.
+@@ -86,6 +81,5 @@ func AddForwardedCounters(names []string, values []int64) {
+ 		if n == "" || v < 0 {
+ 			continue // Should we report an error? Who is the audience?
+ 		}
+-		counter.Add("fwd/"+n, v)
+ 	}
+ }
+diff --git a/gopls/internal/telemetry/telemetry_test.go b/gopls/internal/telemetry/telemetry_test.go
+index 9cb5612..161d6b2 100644
+--- a/gopls/internal/telemetry/telemetry_test.go
++++ b/gopls/internal/telemetry/telemetry_test.go
+@@ -2,8 +2,8 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build go1.21 && !openbsd && !js && !wasip1 && !solaris && !android && !386
+-// +build go1.21,!openbsd,!js,!wasip1,!solaris,!android,!386
++//go:build ignore && go1.21 && !openbsd && !js && !wasip1 && !solaris && !android && !386
++// +build ignore,go1.21,!openbsd,!js,!wasip1,!solaris,!android,!386
+ 
+ package telemetry_test
+ 
+diff --git a/gopls/internal/util/bug/bug.go b/gopls/internal/util/bug/bug.go
+index 7c290b0..236b396 100644
+--- a/gopls/internal/util/bug/bug.go
++++ b/gopls/internal/util/bug/bug.go
+@@ -18,8 +18,6 @@ import (
+ 	"sort"
+ 	"sync"
+ 	"time"
+-
+-	"golang.org/x/telemetry/counter"
+ )
+ 
+ // PanicOnBugs controls whether to panic when bugs are reported.
+@@ -65,9 +63,6 @@ func Report(description string) {
+ 	report(description)
+ }
+ 
+-// BugReportCount is a telemetry counter that tracks # of bug reports.
+-var BugReportCount = counter.NewStack("gopls/bug", 16)
+-
+ func report(description string) {
+ 	_, file, line, ok := runtime.Caller(2) // all exported reporting functions call report directly
+ 
+@@ -103,7 +98,6 @@ func report(description string) {
+ 	mu.Unlock()
+ 
+ 	if newBug {
+-		BugReportCount.Inc()
+ 	}
+ 	// Call the handlers outside the critical section since a
+ 	// handler may itself fail and call bug.Report. Since handlers
+diff --git a/gopls/main.go b/gopls/main.go
+index 8163266..fcd0a10 100644
+--- a/gopls/main.go
++++ b/gopls/main.go
+@@ -17,14 +17,12 @@ import (
+ 	"context"
+ 	"os"
+ 
+-	"golang.org/x/telemetry/counter"
+ 	"golang.org/x/tools/gopls/internal/cmd"
+ 	"golang.org/x/tools/gopls/internal/hooks"
+ 	"golang.org/x/tools/internal/tool"
+ )
+ 
+ func main() {
+-	counter.Open() // Enable telemetry counter writing.
+ 	ctx := context.Background()
+ 	tool.Main(ctx, cmd.New("gopls", "", nil, hooks.Options), os.Args[1:])
+ }
