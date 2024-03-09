@@ -1,7 +1,5 @@
 %global debug_package %{nil}
 
-%bcond_with bootstrap2
-
 # Run tests in check section
 %bcond_with check
 
@@ -18,20 +16,14 @@ Version:		0.17.0
 Summary:	Various packages and tools that support the Go programming language
 Name:		golang-x-tools
 
-Release:	1
+Release:	2
 Source0:	https://github.com/golang/tools/archive/v%{version}/tools-%{version}.tar.gz
-%if %{with bootstrap2}
-# Generated from Source100
-Source3:	vendor.tar.zst
-Source100:	golang-package-dependencies.sh
-%endif
 # (debian)
 Patch0:		0013-Disable-telemetry-in-gopls.patch
 URL:		https://github.com/golang/tools
 License:	BSD
 Group:		Development/Other
 BuildRequires:	compiler(go-compiler)
-%if ! %{with bootstrap2}
 BuildRequires:	golang(github.com/google/go-cmp/cmp)
 BuildRequires:	golang(github.com/jba/printsrc)
 BuildRequires:	golang(github.com/yuin/goldmark)
@@ -61,7 +53,6 @@ BuildRequires:	golang(honnef.co/go/tools/staticcheck)
 BuildRequires:	golang(honnef.co/go/tools/stylecheck)
 BuildRequires:	golang(mvdan.cc/gofumpt/format)
 BuildRequires:	golang(mvdan.cc/xurls/v2)
-%endif
 
 %description
 This package provides the golang.org/x/tools module,
@@ -502,12 +493,6 @@ See https://godoc.org/golang.org/x/tools/cmd/goyacc for more information.
 
 %prep
 %autosetup -p1 -n tools-%{version}
-
-rm -rf vendor
-
-%if %{with bootstrap2}
-tar xf %{S:3}
-%endif
 
 %build
 %gobuildroot
